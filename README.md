@@ -139,7 +139,7 @@ None of the methods is "correct"; they are three transparent priors about margin
 from cheapest to most bias-aware. Pick the one whose assumption matches the
 market you are pricing.
 
-Personally, I use power method, because I tend to find value in low-probability underdogs, and therefore I pick the mist punishing option.
+Personally, I use power method, because I tend to find value in low-probability underdogs, and therefore I pick the most punishing option, to be conservative with my edge estimate.
 
 ### Ordered by how hard they correct the bias
 
