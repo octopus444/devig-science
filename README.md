@@ -2,36 +2,32 @@
 
 Small, pure-Python library for **removing a bookmaker's margin from two-way
 decimal odds** and turning the resulting fair probability into a maximum
-tradeable price. The math is generic — no book-specific code.
-
-No I/O, no network, no clock, no framework. Just the probability math, fully
-type-hinted and tested — the part that is worth trusting in isolation.
+tradeable price. Math isn't difficult, mostly probability.
 
 ## The problem
 
 A bookmaker never quotes the true probability of an event. It quotes odds
 whose implied probabilities deliberately sum to **more** than 100%. That
-excess is the *overround* (a.k.a. the vig or juice) — the book's margin.
+excess is the *overround* (a.k.a. the vig or juice), the book's margin.
 
-To reason about value you first have to remove that margin and recover an
+To reason about whether certain price captures value you first have to remove that margin and recover an
 estimate of the true probabilities. This is **devigging**.
 
-The intended workflow anchors on a **sharp book** as the reference line.
-Pinnacle is the canonical example — it runs a thin margin and does not limit
-winning bettors, so its line is one of the best public estimators of real
-outcome frequency — but nothing in the library is specific to it. The
-workflow is:
+The intended workflow anchors on a **sharp book** as the reference line, which is treated as a fair price.
+Pinnacle is the canonical example of a sharp book. it does not limit
+winning bettors and operates on a smaller margin. However, nothing in the library is specific to it. 
+The workflow is:
 
 1. Take the sharp book's two-way decimal odds.
 2. Devig them into a fair probability for each side.
 3. Compute the highest price another venue could offer at which the trade
    still clears a required EV edge.
 
-Steps 1–3 map to the core functions in `devig.py` — `overround`, `devig`,
-and `required_price` — with `power_exponent` exposing the power method's
+Steps 1–3 map to the core functions in `devig.py`: `overround`, `devig`,
+and `required_price`, with `power_exponent` exposing the power method's
 numerical solve on its own.
 
-## The formulas (plain math)
+## The formulas
 
 Let the two decimal quotes be `A` and `B`. Their **implied probabilities**
 are `1/A` and `1/B`.
@@ -45,7 +41,7 @@ overround = 1/A + 1/B
 For a fair, margin-free book this equals `1.0`. A value of `1.03` means a
 3% margin.
 
-**Multiplicative devig** (default) — scale both implied probabilities down
+**Multiplicative devig** (default): scale both implied probabilities down
 by the overround:
 
 ```
@@ -53,7 +49,7 @@ prob_A = (1/A) / overround
 prob_B = (1/B) / overround
 ```
 
-**Additive devig** — remove an equal absolute slice of the excess from each
+**Additive devig**: remove an equal absolute slice of the excess from each
 side:
 
 ```
@@ -104,7 +100,7 @@ excess    = 0.06667
 | additive (= Shin)  | 0.63333       | 0.36667      |
 | power (k≈1.109)    | 0.63792       | 0.36208      |
 
-All three sum to 1.0, but they disagree about **where the margin lived** —
+All three sum to 1.0, but they disagree about **where the margin is distributed**,
 and they line up in a clear order for the favourite,
 `multiplicative < additive < power`, from the mildest to the most aggressive
 favourite–longshot correction:
@@ -127,7 +123,7 @@ favourite–longshot correction:
   `imp_b > 0`), so additive devigging here **always** yields a probability
   in `(0, 1)`. The often-repeated "additive devig can go negative" warning
   is real only for three-plus-outcome markets, where an equal split of the
-  excess can push a thin outcome below zero — it cannot happen on two
+  excess can push a thin outcome below zero, it cannot happen on two
   outcomes.
 - **Power** raises both implied probabilities to a common exponent `k`. The
   exponent acts on the two numbers by *different relative amounts* — the
@@ -139,9 +135,11 @@ favourite–longshot correction:
   the highest of the three, which is why it is the standard choice for
   devigging sharp two-way lines.
 
-None is "correct"; they are three transparent priors about margin structure,
+None of the methods is "correct"; they are three transparent priors about margin structure,
 from cheapest to most bias-aware. Pick the one whose assumption matches the
 market you are pricing.
+
+Personally, I use power method, because I tend to find value in low-probability underdogs, and therefore I pick the mist punishing option.
 
 ### Ordered by how hard they correct the bias
 
@@ -185,13 +183,13 @@ required_price(0.625, 0.02) = 0.625 / 1.02 = 0.6127
 ```
 
 If another venue rests that outcome at or below `0.6127`, the trade clears
-your threshold. At `0.63` it does not.
+your threshold. 
 
 ## Why the choice of method matters more at long odds
 
 The three methods differ only in how they redistribute a fixed overround, so
 how much they disagree depends entirely on where in the book you look. Near
-the centre they nearly coincide; in the tails they diverge sharply. The
+the centre they nearly coincide, and the devigging method barely matters; in the tails they diverge sharply. The
 following three lines, from a balanced market to an extreme one, show the
 progression. All figures are computed by the library; each table gives the
 fair probability and fair decimal odds assigned to the **longshot** side,
@@ -243,16 +241,17 @@ under the other two, with nothing changed but the method.
 
 The reason is arithmetic. In the tail the longshot carries only a sliver of
 the book, so reallocating a fixed slice of overround is a small *absolute*
-change to a small number — and therefore a large *relative* change, which is
-exactly what fair odds (the reciprocal of probability) magnify. At the centre
+change to a small number, and therefore a large *relative* change, which is
+exactly what fair odds magnify. At the centre
 each side holds roughly half the book, the reallocation is a rounding error
 by comparison, and the reciprocal barely moves.
 
-The practical consequence is blunt: method choice is near-irrelevant in the
+The practical consequence is: method choice is near-irrelevant in the
 middle of the book and dominant in the tails. An edge figure reported on long
 odds is meaningless unless the devigging method is named alongside it, and any
 approach that trades long odds has to justify its prior rather than inherit
-whatever default a tool happens to ship.
+whatever default a tool happens to ship. One of the reasons why some traders simply
+avoid trading outside, say, 0.33 - 0.67 range.
 
 ## Usage
 
@@ -280,12 +279,10 @@ more sophisticated alternative to the flat/proportional methods above.
 exactly to additive devigging.** Solving Shin's insider fraction `z` from its
 own constraint and applying its estimator returns the same fair
 probabilities as `additive`, to machine precision (worst-case ~1e-16 across a
-wide grid). This is an analytic identity, not a numerical near-miss; the
-derivation is written out in `tests/_shin_ref.py`, and
+wide grid). The derivation is written out in `tests/_shin_ref.py`, and
 `tests/test_shin_equivalence.py` confirms it numerically against an
 independent Shin solver, including on heavy-favourite books where additive
-and multiplicative differ substantially (so the test genuinely distinguishes
-them).
+and multiplicative differ substantially.
 
 That is exactly why this library does **not** ship a fourth `shin` method: it
 would be a second name for `additive`. The equivalence breaks for three or
@@ -297,7 +294,7 @@ This is intentionally a small, honest core, not a full pricing engine:
 
 - **Two-outcome markets only.** The additive and multiplicative formulas
   here are written for a two-way book. Three-plus-way markets (draws,
-  multi-runner fields) need the n-way generalisation — and there additive
+  multi-runner fields) need the n-way generalisation, and there additive
   devigging genuinely *can* drive a thin outcome's probability negative, so
   it needs a more careful (clamped or renormalised) margin split. On two
   outcomes that failure mode does not exist (see above).
@@ -305,13 +302,13 @@ This is intentionally a small, honest core, not a full pricing engine:
   nothing about staleness, line movement between read and execution, or
   which of two disagreeing quotes to trust.
 - **No model of the reference book's own margin structure across sports.**
-  Real margins are not uniform — they vary by sport, league, and market type,
+  Real margins are not uniform: they vary by sport, league, and market type,
   and are not applied identically to favourites and longshots. Treating the
   overround as a single number to split evenly (additive), proportionally
   (multiplicative), or by a single exponent (power) is still a
-  simplification of that structure.
+  simplification of that structure, and it's unknown what methods are bookmakers using.
 - **No selection, sizing, or execution logic.** This library decides
-  neither *what* to trade nor *how much* — only what a price is worth once
+  neither *what* to trade nor *how much*, only what a price is worth once
   you already have a fair probability.
 
 ## Possible future work
